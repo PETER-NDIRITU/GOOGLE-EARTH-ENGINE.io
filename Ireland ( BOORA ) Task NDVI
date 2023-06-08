@@ -1,0 +1,50 @@
+Map.addLayer(Boora);
+Map.centerObject(Boora,11);
+var filtered = s2.filter(ee.Filter.bounds(Boora))
+ .filter(ee.Filter.date('2022-03-01', '2022-10-30'))
+ .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 10));
+ var rgbVis = {min: 0.0, max: 3000, bands: ['B4', 'B3', 'B2']};
+var newmerge_median = filtered.median()
+ //displaying layer
+
+var newmerge_clip = newmerge_median.clip(Boora);
+Map.addLayer( newmerge_clip,rgbVis);
+// Write a function that computes NDVI for an image and adds it as a band
+function addNDVI(image) {
+  var ndvi = image.normalizedDifference(['B8', 'B4']).rename('ndvi');
+  return image.addBands(ndvi);
+}
+
+// Map the function over the collection
+var withNdvi = filtered.map(addNDVI);
+
+var composite = withNdvi.median();
+
+var ndviComposite = composite.select('ndvi').clip(Boora);
+
+var palette = ['red', 'yellow', 'green'];
+
+var ndviVis = {min:0, max:0.5, palette: palette };
+Map.addLayer(ndviComposite, ndviVis, 'ndvi');
+
+
+Export.image.toDrive({
+  image:ndviComposite,
+  description:'ndvi',
+  folder:'ireland',
+  fileNamePrefix:'ndvi',
+  region:Boora,
+  scale:10,
+  maxPixels:1e9
+})
+
+
+
+
+
+
+
+
+
+
+                 
