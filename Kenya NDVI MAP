@@ -1,0 +1,54 @@
+Map.addLayer(newmerge);
+// Center the map on the Farm geometry
+Map.centerObject(newmerge);
+
+ var rgbVis = {min: 0.0, max: 3000, bands: ['B4', 'B3', 'B2']};
+ // Load the Sentinel-2 imagery
+var sentinel = sentinel_2;
+ 
+// Filter the Sentinel-2 imagery to include only images from 2017 with less than 30% cloud cover and within the bounds of the Farm geometry
+var filtered = sentinel
+.filterDate('2021-01-01', '2022-12-31')
+.filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 30))
+.filterBounds(newmerge);
+
+// Define a function for cloud masking and apply it to the filtered imagery
+function maskS2clouds(image) {
+var qa = image.select('QA60');
+var cloudBitMask = 1 << 10;
+var cirrusBitMask = 1 << 11;
+var mask = qa.bitwiseAnd(cloudBitMask).eq(0).and(
+qa.bitwiseAnd(cirrusBitMask).eq(0));
+return image.updateMask(mask).divide(10000)
+.select('B.*')
+.copyProperties(image, ['system:time_start']);
+}
+
+var filtered = filtered.map(maskS2clouds);
+
+// Define a function that computes NDVI for an image and adds it as a band
+function addNDVI(image) {
+var ndvi = image.normalizedDifference(['B8', 'B4']).rename('ndvi');
+return image.addBands(ndvi);
+}
+
+// Map the NDVI function over the filtered collection to compute NDVI for each image in the collection
+var withNdvi = filtered.map(addNDVI);
+
+// Display a time-series chart of the mean NDVI value for the Farm region over time, using the filtered and NDVI-computed image collection
+var chart = ui.Chart.image.seriesByRegion({
+imageCollection: withNdvi.select('ndvi'),
+regions: newmerge,
+reducer: ee.Reducer.mean(),
+scale: 10,
+seriesProperty: 'label', // add a series property to differentiate the regions
+xProperty: 'system:time_start' // specify the x-axis as the image time
+})
+.setOptions({
+lineWidth: 1,
+title: 'NDVI Time Series',
+interpolateNulls: true,
+vAxis: {title: 'NDVI'},
+hAxis: {title: '', format: 'YYYY-MMM'}
+});
+print(chart);
