@@ -1,0 +1,33 @@
+// Define the study area
+var OREGON = ee.Geometry.Polygon([
+  [-124.566244, 46.803698],
+  [-116.710062, 46.803698],
+  [-116.710062, 41.991868],
+  [-124.566244, 41.991868]
+]);
+
+// Filter the Sentinel-2 image collection
+var s2 = ee.ImageCollection('COPERNICUS/S2_SR')
+  .filterBounds(OREGON)
+  .filterDate('2020-01-01', '2020-01-05')
+  .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 10))
+  .median()
+  .clip(OREGON);
+
+// Filter the MODIS burned area image collection
+var burnedArea = ee.ImageCollection('MODIS/006/MCD64A1')
+  .filterBounds(OREGON)
+  .filterDate('2022-06-06', '2023-03-03')
+  .max()
+  .clip(OREGON);
+  
+  
+
+// Display the Sentinel-2 true color image as background
+Map.addLayer(s2, {min: 0.0, max: 4000, bands: ['B4', 'B3', 'B2']}, 'Sentinel-2');
+
+// Display the MODIS burned area image on top of the Sentinel-2 image
+Map.addLayer(burnedArea, {min: 30.0, max: 341.0, bands:['BurnDate'], palette: 'yellow, orange, red'}, 'Burned Area');
+
+// Center the map on the study area
+Map.centerObject(OREGON, 7);
