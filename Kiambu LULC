@@ -1,0 +1,49 @@
+Map.addLayer(kiambu)
+// The following collections were created using the 
+// Drawing Tools in the code editor 
+
+
+
+
+
+var filtered = s2
+.filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 30))
+  .filter(ee.Filter.date('2018-01-01', '2020-01-01'))
+  .filter(ee.Filter.bounds(kiambu))
+  .select('B.*');
+  var composite = filtered.median().clip(kiambu);
+
+// Display the input composite.
+var rgbVis = {
+  min: 0.0,
+  max: 3000,
+  bands: ['B4', 'B3', 'B2'],
+};
+Map.addLayer(composite, rgbVis, 'image');
+
+var gcps = urban.merge(bare).merge(Water).merge(vegetation);
+
+// Overlay the point on the image to get training data.
+var training = composite.sampleRegions({
+  collection: gcps, 
+  properties: ['landcover'], 
+  scale: 10
+});
+var gcps = urban.merge(Bare).merge(Water).merge(Vegetation);
+var training = composite.sampleRegions({
+  collection: gcps, 
+  properties: ['landcover'], 
+  scale: 10,
+ tileScale: 16
+});
+print(training);
+
+// Train a classifier.
+var classifier = ee.Classifier.smileRandomForest(50).train({
+ features: training,  
+ classProperty: 'landcover', 
+  inputProperties: composite.bandNames()
+});
+// // // Classify the image.
+var classified = composite.classify(classifier);
+Map.addLayer(classified, {min: 0, max: 3, palette: ['yellow', 'brown', 'blue', 'green']},'2019');
