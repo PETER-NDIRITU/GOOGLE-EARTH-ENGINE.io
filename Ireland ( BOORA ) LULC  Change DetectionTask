@@ -1,0 +1,134 @@
+Map.addLayer(geometry)
+Map.centerObject(geometry,11)
+
+
+//Importing l7 imagery
+var l7_composite = ee.ImageCollection('LANDSAT/LE07/C02/T1_TOA')
+.filterDate('1999-01-01', '2002-12-31')
+.filter(ee.Filter.lt('CLOUD_COVER', 10))
+.median()
+.clip(geometry);
+Map.addLayer(l7_composite, imageVisParam7, 'l7 boora');
+
+
+
+
+//Importing l8 imagery
+var l8_composite = ee.ImageCollection("LANDSAT/LC08/C02/T1_TOA")
+                  .filterDate('2020-01-01','2020-12-31')
+                  .filterBounds(geometry)
+.filter(ee.Filter.lt('CLOUD_COVER', 10))
+.median()
+.clip(geometry)
+Map.addLayer(l8_composite,imageVisParam8,'l8 boora')
+
+
+
+// Landsat 7 Classification
+var training = forestl7.merge(nonforestl7);
+var trainingl7 = l7_composite.sampleRegions({
+  collection: training,
+  properties: ['Class'],
+  scale: 10
+});
+print(trainingl7);
+var classifierl7 = ee.Classifier.smileRandomForest(50).train({
+  features: trainingl7,
+  classProperty: 'Class',
+  inputProperties: l7_composite.bandNames().getInfo() // Convert band names to an array
+});
+
+var Classifiedl7 = l7_composite.classify(classifierl7);
+Map.addLayer(Classifiedl7, {min: 0.0, max: 3, palette: ['green', 'yellow']},'L7 CLASSIFIED');
+
+
+//Landsat 8 Classification
+var training = forestl8.merge(nonforestl8);
+var trainingl8 = l8_composite.sampleRegions({
+  collection: training,
+  properties: ['Class'],
+  scale: 10
+});
+print(trainingl8);
+var classifierl8 = ee.Classifier.smileRandomForest(50).train({
+  features: trainingl8,
+  classProperty: 'Class',
+  inputProperties: l8_composite.bandNames().getInfo() // Convert band names to an array
+});
+var Classifiedl8 = l8_composite.classify(classifierl8);
+Map.addLayer(Classifiedl8, {min: 0.0, max: 3, palette: ['green', 'yellow']},'L8 CLASSIFIED');
+
+
+// Change Detection
+ //0-1 and 1-2
+ 
+ var beforeclasses = Classifiedl8.remap([0,1],[1,2])
+ var afterclasses = Classifiedl7.remap([0,1],[1,2])
+ 
+ //Show all the changed area
+ // change is shown by color red and no change by color white
+ var changed = afterclasses.subtract(beforeclasses).neq(0)
+ Map.addLayer(changed,{min:0,max:1,palette:['white','red']},'Change')
+ 
+
+var merged = beforeclasses.multiply(100).add(afterclasses).rename('transition')
+print(merged)
+
+var transitionMatrix = merged.reduceRegion({
+  reducer:ee.Reducer.frequencyHistogram(),
+  geometry:geometry,
+  scale:30,
+  maxPixels:1e11})
+  
+  print(transitionMatrix.get('transition'))
+  
+var areaImage = ee.Image.pixelArea().divide(1e6).addBands(merged)
+  
+print(areaImage)
+
+//Export l8 image
+Export.image.toDrive({
+  image:l8_composite.select(['B1','B2','B3','B4','B5','B6','B7']),
+  description:'L8',
+  folder:'Google earth egine',
+  scale:30, region:geometry,
+  fileDimensions:7680,
+  maxPixels:10e11,
+  crs:"EPSG:32643"
+});
+
+//Export l7 image
+Export.image.toDrive({
+  image:l7_composite.select(['B1','B2','B3','B4','B5','B6','B7']),
+  description:'L7',
+  folder:'Google earth egine',
+  scale:30, region:geometry,
+  fileDimensions:7680,
+  maxPixels:10e11,
+  crs:"EPSG:32643"
+});
+
+
+//Export changed image
+Export.image.toDrive({
+  image:changed.select(['B1','B2','B3','B4','B5','B6','B7']),
+  description:'change',
+  folder:'Google earth egine',
+  scale:30, region:geometry,
+  fileDimensions:7680,
+  maxPixels:10e11,
+  crs:"EPSG:32643"
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
