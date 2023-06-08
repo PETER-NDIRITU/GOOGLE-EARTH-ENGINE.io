@@ -1,0 +1,305 @@
+// Add the MAU layer to the map and center the view
+Map.addLayer(MAU);
+Map.centerObject(MAU, 9);
+
+
+
+// CALCULATING NDVI
+function getComposite(MAU) {
+  var filtered = s2
+  .filter(ee.Filter.date('2019-01-01', '2019-12-31'))
+  .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 10))
+  .filter(ee.Filter.bounds(MAU))
+  .map(maskS2clouds)
+  
+  // Map the function over the collection
+  var withNdvi = filtered.map(addNDVI);
+
+  var composite = withNdvi.median().clip(MAU)
+  return composite
+}
+
+
+var rgbVis = {
+  min: 0.0,
+  max: 0.3,
+  bands: ['B4', 'B3', 'B2'],
+};
+
+var palette = ['red','yellow','red','green'];
+
+// Write a function for Cloud masking
+function maskS2clouds(image) {
+  var qa = image.select('QA60')
+  var cloudBitMask = 1 << 10;
+  var cirrusBitMask = 1 << 11;
+  var mask = qa.bitwiseAnd(cloudBitMask).eq(0).and(
+             qa.bitwiseAnd(cirrusBitMask).eq(0))
+  return image.updateMask(mask).divide(10000)
+      .select("B.*")
+      .copyProperties(image, ["system:time_start"])
+}
+
+var ndviVis = {min:0, max:0.5, palette: palette }
+
+
+
+
+// Write a function that computes NDVI for an image and adds it as a band
+function addNDVI(image) {
+  var ndvi = image.normalizedDifference(['B8', 'B4']).rename('ndvi');
+  return image.addBands(ndvi);
+}
+
+
+// Create UI Elements
+// var title = ui.Label('Global NDVI Explorer');
+// title.style().set({
+//   'position':  'top-center',
+//   'fontSize': '24px'
+//   });
+var resultsPanel = ui.Panel();
+var chartPanel = ui.Panel();
+var selectionPanel = ui.Panel({
+  layout: ui.Panel.Layout.flow('horizontal'),
+});
+
+resultsPanel.style().set({
+  width: '400px',
+  position: 'bottom-right'
+});
+
+var resetPanel = ui.Panel();
+
+
+resultsPanel.add(selectionPanel)
+resultsPanel.add(chartPanel)
+resultsPanel.add(resetPanel)
+
+// Function to reset the app to initial state
+var resetEverything = function() {
+  chartPanel.clear()
+  selectionPanel.clear()
+  resetPanel.clear()
+
+  Map.clear()
+
+  // Map.add(title);
+  Map.add(resultsPanel)
+  Map.onClick(displayChart)
+  // Use the current viewport
+  var bounds = ee.Geometry.Rectangle(Map.getBounds())
+  var composite = getComposite(bounds)
+  Map.addLayer(composite, rgbVis, 'Sentinel-2 Composite')
+  var label = ui.Label('Click anywhere to see the chart')
+  resetPanel.add(label)
+
+}
+
+// Function to create and display NDVI time-series chart
+var displayChart = function(point) {
+  resetPanel.clear()
+  var button = ui.Button({
+    label: 'Reset',
+    onClick: resetEverything})
+  resetPanel.add(button)
+  var geometry = ee.Geometry.Point(point['lon'], point['lat']);
+  
+  var filtered = s2
+    .filter(ee.Filter.date('2019-01-01', '2019-12-31'))
+    .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 50))
+    .map(maskS2clouds)
+    .map(addNDVI)
+    .filter(ee.Filter.bounds(MAU))
+  
+  var chart = ui.Chart.image.series({
+    imageCollection: filtered.select('ndvi'),
+    region: MAU,
+    reducer: ee.Reducer.mean(),
+    scale: 20}).setOptions({
+      title: 'NDVI Time Series',
+      vAxis: {title: 'NDVI'},
+      hAxis: {title: 'Date', gridlines: {count: 12}}
+    })
+      
+  chartPanel.clear()
+  selectionPanel.clear()
+  selectionPanel.add(ui.Label('Choose an image to display:'))
+  chartPanel.add(chart)
+  
+  
+  var addNdviLayer = function(dateString) {
+    var date = ee.Date.parse('YYYY-MM-dd', dateString)
+    var image = ee.Image(filtered.filter(ee.Filter.date(date, date.advance(1, 'day'))).mosaic())
+    Map.addLayer(image.select('ndvi'), ndviVis, 'NDVI Image -' + dateString)
+  }
+
+
+  filtered.aggregate_array('system:time_start').evaluate(function(ids) {
+    var dates = ee.List(ids).distinct().map(function(timestamp) {
+      return ee.Date(timestamp).format('YYYY-MM-dd')
+    })
+    dates.evaluate(function(dateList){
+      selectionPanel.add(ui.Select({
+      items: dateList,
+      onChange: addNdviLayer,
+      placeholder: 'Select a date'
+    }))
+    })
+
+});
+
+}
+// Call the function to build the initial UI state.
+resetEverything();
+
+// URBAN - SETTLEMENT DATASET
+var dataseturban = urban_data
+  .filter(ee.Filter.bounds(MAU))
+  .filter(ee.Filter.date('2015-01-01', '2015-12-31'))
+  .median()
+  .clip(MAU)
+  .select('smod_code');
+
+var urbanVisParams = {
+  min: 0.0,
+  max: 3.0,
+  palette: ['000000', '448564', '70daa4', 'ffffff']
+};
+Map.addLayer(dataseturban, urbanVisParams, 'Degree of Urbanization');
+
+// SOIL MOISTURE DATASET
+var datasetsoils = soilmoisture_data
+  .filter(ee.Filter.bounds(MAU))
+  .filter(ee.Filter.date('2015-01-01', '2015-12-31'))
+  .median()
+  .clip(MAU)
+  .select('ssm');
+
+var soilMoistureVisParams = {
+  min: 0.0,
+  max: 28.0,
+  palette: ['0300ff', '418504', 'efff07', 'efff07', 'ff0303']
+};
+Map.addLayer(datasetsoils, soilMoistureVisParams, 'Soil Moisture');
+
+// FOREST DATASET
+var dataset_forest = ee.ImageCollection('JAXA/ALOS/PALSAR/YEARLY/FNF4')
+  .filterDate('2015-01-01', '2020-12-31')
+  .filterBounds(MAU)
+  .median()
+  .clip(MAU);
+
+var forestNonForest = dataset_forest.select('fnf');
+var forestNonForestVisParams = {
+  min: 1,
+  max: 4,
+  palette: ['00b200', '83ef62', 'ffff99', '0000ff']
+};
+Map.addLayer(forestNonForest, forestNonForestVisParams, 'Forest/Non-Forest');
+
+// RIVERS DATASET
+var dataset_river = ee.FeatureCollection('WWF/HydroSHEDS/v1/FreeFlowingRivers')
+  .filterBounds(MAU);
+
+// Paint 'RIV_ORD' (river order) value to an image for visualization.
+var datasetVis = ee.Image().byte().paint(dataset_river, 'RIV_ORD');
+
+var visParams = {
+  min: 1,
+  max: 10,
+  palette: ['08519c', '3182bd', '6baed6', 'bdd7e7', 'eff3ff']
+};
+
+Map.addLayer(datasetVis, visParams, 'Free Flowing Rivers');
+// Map.addLayer(dataset_river, null, 'Feature Collection', false);
+
+
+
+// Towns data
+// Generate an image of distance to nearest power plant.
+var distance = towns.distance({searchRadius: 5000, maxError: 50});
+
+// Display the image and FeatureCollection on the map.
+// Map.setCenter(4.56, 50.78, 7);
+Map.addLayer(distance, {max: 5000}, 'Distance to towns');
+Map.addLayer(towns, {color: 'red'}, 'towns');
+
+//Roads data
+
+var distance = roads.distance({searchRadius: 5000, maxError: 50});
+
+// Display the image and FeatureCollection on the map.
+// Map.setCenter(4.56, 50.78, 7);
+Map.addLayer(distance, {max: 5000}, 'Distance to roads');
+Map.addLayer(roads, {color: 'red'}, 'towns');
+
+
+
+
+
+
+
+
+// SLOPE DATA
+var dem = ee.Image('NASA/NASADEM_HGT/001')
+  .clip(MAU)
+  .select('elevation');
+
+var slope = ee.Terrain.slope(dem);
+var aspect = ee.Terrain.aspect(dem);
+var hillshade = ee.Terrain.hillshade(dem);
+
+var slopeVisParams = { min: 0, max: 89.99};
+var aspectVisParams = { min: 0, max: 359.99};
+var hillshadeVisParams = { min: 0, max: 255};
+
+Map.addLayer(slope, slopeVisParams, 'Slope');
+Map.addLayer(aspect, aspectVisParams, 'Aspect');
+Map.addLayer(hillshade, hillshadeVisParams, 'Hillshade');
+
+// Convert rivers feature collection to an image with a constant value
+var riverImage = ee.Image().byte().paint(dataset_river, 1);
+
+// Define weights for each feature
+var weights = {
+  dataseturban: 0.3,
+  datasetsoils: 0.2,
+  dataset_forest: 0.2,
+  rivers: 0.1,
+  slope: 0.1,
+  roads: 0.1
+};
+
+// Perform proximity analysis
+var proximity = dataseturban
+  .multiply(weights.dataseturban)
+  .add(datasetsoils.multiply(weights.datasetsoils))
+  .add(dataset_forest.multiply(weights.dataset_forest))
+  .add(riverImage.multiply(weights.rivers))
+  .add(slope.multiply(weights.slope))
+  // .add(roads.multiply(weights.roads));
+
+// Normalize the proximity scores
+var minProximity = proximity.reduceRegion({
+  reducer: ee.Reducer.min(),
+  geometry: MAU,
+  scale: 1,
+  maxPixels: 1e11
+}).values().get(0);
+
+var maxProximity = proximity.reduceRegion({
+  reducer: ee.Reducer.max(),
+  geometry: MAU,
+  scale: 1,
+  maxPixels: 1e13
+}).values().get(0);
+
+var normalizedProximity = proximity.subtract(minProximity).divide(ee.Number(maxProximity).subtract(minProximity));
+
+// Display the proximity analysis result
+var proximityVisParams = { min: 0, max: 1, palette: ['blue', 'white', 'red'], maxPixels: 1e13 };
+Map.addLayer(normalizedProximity, proximityVisParams, 'Proximity Analysis');
+
+// Print the proximity scores for reference
+print('Proximity Scores:', proximity);
