@@ -1,0 +1,22 @@
+Map.addLayer(kirinyaga)
+Map.centerObject(kirinyaga,10)
+
+//Importing l7 imagery
+var l7_composite = ee.ImageCollection('LANDSAT/LE07/C02/T1_TOA')
+.filterDate('2005-01-01', '2005-12-31')
+.filter(ee.Filter.lt('CLOUD_COVER', 10))
+.median()
+.clip(kirinyaga);
+Map.addLayer(l7_composite,imageVisParam,'KIRINYAGA L7');
+
+//Export l7 image
+Export.image.toDrive({
+  image:l7_composite.select(['B1','B2','B3','B4','B5','B7']),
+  description:'L7kirinyaga',
+  folder:'Google earth egine',
+  scale:30,
+  region:kirinyaga,
+  fileDimensions:7680,
+  maxPixels:10e9,
+  crs:"EPSG:32643"
+});
