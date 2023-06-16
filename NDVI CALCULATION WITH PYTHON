@@ -1,0 +1,49 @@
+!pip install geemap
+import ee
+import geemap
+ee.Authenticate()
+ee.Initialize()
+
+Map = geemap.Map()
+
+geometry = ee.Geometry.Point([39, -4])
+Map.centerObject(geometry, 12)
+s2 = ee.ImageCollection('COPERNICUS/S2_HARMONIZED')
+geometry = ee.Geometry.Polygon([[
+[39.50434262293839,-4.230343112959829],
+[39.86689145106339,-4.230343112959829],
+[39.86689145106339,-3.8892522110675944],
+[39.50434262293839,-3.8892522110675944]
+]])
+# Write a function for Cloud masking
+def maskS2clouds(image):
+  qa = image.select('QA60')
+  cloudBitMask = 1 << 10
+  cirrusBitMask = 1 << 11
+  mask = qa.bitwiseAnd(cloudBitMask).eq(0).And(
+             qa.bitwiseAnd(cirrusBitMask).eq(0))
+  return image.updateMask(mask) \
+      .select("B.*") \
+      .copyProperties(image, ["system:time_start"])
+
+filtered = s2 \
+  .filter(ee.Filter.date('2019-01-01', '2019-12-31')) \
+  .filter(ee.Filter.bounds(geometry)) \
+  .map(maskS2clouds)
+
+# Write a function that computes NDVI for an image and adds it as a band
+def addNDVI(image):
+  ndvi = image.normalizedDifference(['B5', 'B4']).rename('ndvi')
+  return image.addBands(ndvi)
+
+withNdvi = filtered.map(addNDVI)
+
+composite = withNdvi.median()
+palette = [
+  'FFFFFF', 'CE7E45', 'DF923D', 'F1B555', 'FCD163', '99B718',
+  '74A901', '66A000', '529400', '3E8601', '207401', '056201',
+  '004C00', '023B01', '012E01', '011D01', '011301']
+
+ndviVis = {'min':0, 'max':0.5, 'palette': palette }
+Map.addLayer(withNdvi.select('ndvi'), ndviVis, 'NDVI Composite')
+Map
