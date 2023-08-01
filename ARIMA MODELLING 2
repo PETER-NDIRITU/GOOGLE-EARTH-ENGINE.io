@@ -1,0 +1,122 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import statsmodels.api as sm
+
+# Load the temperature data (assuming it's in a CSV file with 'date' and 'temperature' columns)
+data = pd.read_csv('temperature_data.csv')
+
+# Convert the 'date' column to a pandas datetime format and set it as the index
+data['date'] = pd.to_datetime(data['date'])
+data.set_index('date', inplace=True)
+
+# Check the data and resample if necessary (e.g., if the data is not in a regular time frequency)
+# data.head()
+# data = data.resample('D').mean()
+
+# Plot the temperature time series
+plt.figure(figsize=(10, 6))
+plt.plot(data.index, data['temperature'], label='Temperature')
+plt.xlabel('Date')
+plt.ylabel('Temperature')
+plt.legend()
+plt.title('Temperature Time Series')
+plt.show()
+
+# Decompose the time series to check for trends and seasonality
+decomposition = sm.tsa.seasonal_decompose(data['temperature'], model='additive')
+trend = decomposition.trend
+seasonal = decomposition.seasonal
+residual = decomposition.resid
+
+# Plot the decomposed components
+plt.figure(figsize=(10, 8))
+plt.subplot(4, 1, 1)
+plt.plot(data.index, data['temperature'], label='Original')
+plt.legend()
+plt.subplot(4, 1, 2)
+plt.plot(data.index, trend, label='Trend')
+plt.legend()
+plt.subplot(4, 1, 3)
+plt.plot(data.index, seasonal, label='Seasonal')
+plt.legend()
+plt.subplot(4, 1, 4)
+plt.plot(data.index, residual, label='Residual')
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+# Perform Augmented Dickey-Fuller test to check for stationarity
+from statsmodels.tsa.stattools import adfuller
+
+def test_stationarity(timeseries):
+    # Perform Dickey-Fuller test
+    dftest = adfuller(timeseries, autolag='AIC')
+    dfoutput = pd.Series(dftest[0:4], index=['Test Statistic', 'p-value', '# Lags Used', 'Number of Observations Used'])
+    for key, value in dftest[4].items():
+        dfoutput[f'Critical Value ({key})'] = value
+    print(dfoutput)
+
+print("Results of Dickey-Fuller Test:")
+test_stationarity(data['temperature'])
+
+# If the time series is not stationary, apply differencing to make it stationary
+# data_diff = data['temperature'].diff().dropna()
+# test_stationarity(data_diff)
+
+# If necessary, find the order of differencing (d) by observing the ACF and PACF plots
+# from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
+# plot_acf(data_diff)
+# plot_pacf(data_diff)
+
+# Fit the ARIMA model and determine the order (p, d, q) based on AIC (Akaike Information Criterion)
+p = range(0, 3)  # Replace with a reasonable range based on ACF and PACF plots
+d = range(0, 2)  # Replace with a reasonable range based on differencing
+q = range(0, 3)  # Replace with a reasonable range based on ACF and PACF plots
+
+best_aic = np.inf
+best_order = None
+
+for i in p:
+    for j in d:
+        for k in q:
+            try:
+                model = sm.tsa.ARIMA(data['temperature'], order=(i, j, k))
+                results = model.fit(disp=0)
+                aic = results.aic
+                if aic < best_aic:
+                    best_aic = aic
+                    best_order = (i, j, k)
+            except:
+                continue
+
+print(f"Best Order: {best_order} with AIC: {best_aic}")
+
+# Fit the ARIMA model with the best order
+best_model = sm.tsa.ARIMA(data['temperature'], order=best_order)
+results = best_model.fit(disp=0)
+
+# Summary of the model
+print(results.summary())
+
+# Diagnostic plots to check the residuals
+results.plot_diagnostics(figsize=(10, 6))
+plt.show()
+
+# Forecast future temperatures using the ARIMA model
+forecast_steps = 12  # Replace with the number of steps you want to forecast
+forecast, stderr, conf_int = results.forecast(steps=forecast_steps)
+
+# Create a date range for the forecast period
+forecast_index = pd.date_range(data.index[-1], periods=forecast_steps + 1, closed='right')
+
+# Plot the forecast
+plt.figure(figsize=(10, 6))
+plt.plot(data.index, data['temperature'], label='Observed', color='blue')
+plt.plot(forecast_index[1:], forecast, label='Forecast', color='red')
+plt.fill_between(forecast_index[1:], conf_int[:, 0], conf_int[:, 1], color='pink', alpha=0.3)
+plt.xlabel('Date')
+plt.ylabel('Temperature')
+plt.legend()
+plt.title('Temperature Forecast using ARIMA')
+plt.show()
