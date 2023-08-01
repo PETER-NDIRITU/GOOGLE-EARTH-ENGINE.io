@@ -1,0 +1,96 @@
+
+In this assignment you are going to implement your own GUI-based Python program with
+PyQt5. You have to design it yourself from scratch and put it together in QT Designer. There
+is a list of required GUI elements that will allow the user to provide the needed input for the
+program. The program will use arcpy but it is intended to be a standalone program, so it's not
+supposed to be run as a script tool inside ArcGIS, and that's why it needs its own GUI. The
+program will realize a simple workflow for extracting features from a shapefile on disk based
+on selection by attribute and selection by location. Please download the attached zip file
+assignment_data.zip with the data you will need for this project. Extract the data to a new folder
+and check out the two shapefiles that are contained in the zip file, countries.shp and
+OSMpoints.shp, in ArcGIS.
+Your program will provide the GUI that allows the user:
+i. to select the two input files (country file and POI file),
+ii. to provide the name of the target country,
+iii. to specifiy the name of the output shapefile that will be produced with the extracted
+shop features,
+iv. and to indicate whether all shops or only shops of a particular type should be extracted
+(and if so, which type).
+
+
+
+
+import sys
+import os
+from PyQt5.QtWidgets import QApplication, QMainWindow, QFileDialog, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
+
+# Import ArcPy and set the workspace to the folder containing the shapefiles
+import arcpy
+arcpy.env.workspace = r'path_to_folder_containing_shapefiles'
+
+class FeatureExtractionApp(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle('Feature Extraction App')
+        self.setGeometry(100, 100, 400, 200)
+        
+        self.country_file = None
+        self.poi_file = None
+        self.target_country = None
+        self.output_file = None
+        self.shop_type = None
+
+        layout = QVBoxLayout()
+
+        # Add widgets for selecting input files
+        self.country_label = QLabel('Select Country File:')
+        layout.addWidget(self.country_label)
+
+        self.country_button = QPushButton('Browse')
+        self.country_button.clicked.connect(self.select_country_file)
+        layout.addWidget(self.country_button)
+
+        # Add widgets for selecting POI file, target country, output file, and shop type
+        # Implement QLineEdit and QPushButton for each input
+
+        # Add an "Extract Features" button
+        self.extract_button = QPushButton('Extract Features')
+        self.extract_button.clicked.connect(self.extract_features)
+        layout.addWidget(self.extract_button)
+
+        # Set the layout
+        widget = QWidget()
+        widget.setLayout(layout)
+        self.setCentralWidget(widget)
+
+    def select_country_file(self):
+        options = QFileDialog.Options()
+        options |= QFileDialog.ReadOnly
+        file, _ = QFileDialog.getOpenFileName(self, "Select Country File", "", "Shapefiles (*.shp);;All Files (*)", options=options)
+        if file:
+            self.country_file = file
+
+    # Implement methods for selecting POI file, target country, output file, and shop type
+
+    def extract_features(self):
+        # Check if all required inputs are provided
+        if self.country_file and self.poi_file and self.target_country and self.output_file:
+            # Feature extraction logic using ArcPy
+            # Implement ArcPy tools to perform selection by attribute and selection by location
+            # and create the output shapefile with the extracted features
+            arcpy.SelectLayerByAttribute_management(...)  # Example of using SelectLayerByAttribute tool
+            arcpy.SelectLayerByLocation_management(...)  # Example of using SelectLayerByLocation tool
+            arcpy.CopyFeatures_management(...)  # Example of creating the output shapefile
+            print('Features extracted successfully!')
+        else:
+            # Show an error message if not all required inputs are provided
+            print('Please provide all required inputs.')
+
+def main():
+    app = QApplication(sys.argv)
+    window = FeatureExtractionApp()
+    window.show()
+    sys.exit(app.exec_())
+
+if __name__ == '__main__':
+    main()
