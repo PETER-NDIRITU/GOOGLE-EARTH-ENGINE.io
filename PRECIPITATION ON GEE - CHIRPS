@@ -1,0 +1,52 @@
+// Define the study area (e.g., a bounding box or a geometry)
+var studyArea = ee.Geometry.Rectangle([longitude_min, latitude_min, longitude_max, latitude_max]);
+
+// Load the precipitation dataset (e.g., CHIRPS)
+var precipitation = ee.ImageCollection('UCSB-CHG/CHIRPS/DAILY')
+                     .filterDate('start_date', 'end_date')
+                     .filterBounds(studyArea)
+                     .select('precipitation');
+
+// Compute the monthly average precipitation for the entire study period
+var monthlyAverage = precipitation.reduce(ee.Reducer.mean());
+
+// Calculate statistics for the study area
+var statistics = monthlyAverage.reduceRegion({
+  reducer: ee.Reducer.mean().combine({reducer2: ee.Reducer.stdDev(), sharedInputs: true}),
+  geometry: studyArea,
+  scale: 1000, // Adjust the scale according to the resolution of the dataset
+  maxPixels: 1e9
+});
+
+// Extract the monthly average precipitation values for the entire study period
+var values = monthlyAverage.reduceRegion({
+  reducer: ee.Reducer.toList(),
+  geometry: studyArea,
+  scale: 1000
+}).get('precipitation');
+
+// Convert the values to a list
+values = ee.List(values.get('precipitation'));
+
+// Create a sequence of months
+var months = ee.List.sequence(1, values.size());
+
+// Combine the months and precipitation values into a feature collection
+var chartData = ee.FeatureCollection(months.map(function(month){
+  month = ee.Number(month);
+  var precipitationValue = values.get(month.subtract(1));
+  var feature = ee.Feature(null, {
+    'month': month,
+    'precipitation': precipitationValue
+  });
+  return feature;
+}));
+
+// Display the chart
+print(ui.Chart.feature.byFeature(chartData, 'month', ['precipitation'])
+      .setChartType('LineChart')
+      .setOptions({
+        title: 'Monthly Average Precipitation',
+        hAxis: {title: 'Month'},
+        vAxis: {title: 'Precipitation (mm)'}
+      }));
