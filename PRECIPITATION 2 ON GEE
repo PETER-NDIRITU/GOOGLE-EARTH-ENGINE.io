@@ -1,0 +1,43 @@
+// Define the region of interest (ROI) as a bounding box or a geometry
+var roi = ee.Geometry.Rectangle([lon_min, lat_min, lon_max, lat_max]);
+
+// Load the CHIRPS rainfall dataset
+var chirpsCollection = ee.ImageCollection('UCSB-CHG/CHIRPS/DAILY')
+  .filterDate('2020-01-01', '2020-12-31')
+  .filterBounds(roi);
+
+// Calculate the total rainfall for the ROI for the specified date range
+var rainfallTotal = chirpsCollection.sum();
+
+// Visualize the total rainfall
+Map.addLayer(rainfallTotal, {
+  min: 0,
+  max: 200,
+  palette: ['blue', 'cyan', 'yellow', 'red']
+}, 'Total Rainfall');
+
+// Calculate the average rainfall for each month in the date range
+var monthlyRainfall = chirpsCollection.map(function(image) {
+  var month = ee.Date(image.get('system:time_start')).get('month');
+  return image.set('month', month);
+}).select(['precipitation']);
+
+var rainfallMean = monthlyRainfall.reduce('mean');
+
+// Visualize the average monthly rainfall
+Map.addLayer(rainfallMean, {
+  min: 0,
+  max: 200,
+  palette: ['blue', 'cyan', 'yellow', 'red']
+}, 'Monthly Rainfall Mean');
+
+// Calculate and display a rainfall anomaly map (difference from long-term average)
+var climatology = chirpsCollection.reduce('mean');
+var rainfallAnomaly = rainfallMean.subtract(climatology);
+
+// Visualize the rainfall anomaly
+Map.addLayer(rainfallAnomaly, {
+  min: -50,
+  max: 50,
+  palette: ['red', 'white', 'blue']
+}, 'Rainfall Anomaly');
