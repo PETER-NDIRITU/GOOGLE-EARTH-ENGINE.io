@@ -1,0 +1,60 @@
+// Define the study area (e.g., a bounding box or a geometry)
+var studyArea = ee.Geometry.Rectangle([longitude_min, latitude_min, longitude_max, latitude_max]);
+
+// Load the precipitation dataset (e.g., CHIRPS)
+var precipitation = ee.ImageCollection('UCSB-CHG/CHIRPS/DAILY')
+                     .filterDate('start_date', 'end_date')
+                     .filterBounds(studyArea)
+                     .select('precipitation');
+
+// Load the temperature dataset (e.g., ERA5)
+var temperature = ee.ImageCollection('ECMWF/ERA5/DAILY')
+                  .filterDate('start_date', 'end_date')
+                  .filterBounds(studyArea)
+                  .select('mean_2m_air_temperature');
+
+// Load the Land Surface Temperature (LST) dataset (e.g., MODIS)
+var lst = ee.ImageCollection('MODIS/006/MOD11A2')
+          .filterDate('start_date', 'end_date')
+          .filterBounds(studyArea)
+          .select('LST_Day_1km');
+
+// Compute the monthly average precipitation, temperature, and LST for the entire study period
+var monthlyAveragePrecip = precipitation.reduce(ee.Reducer.mean());
+var monthlyAverageTemp = temperature.reduce(ee.Reducer.mean());
+var monthlyAverageLST = lst.reduce(ee.Reducer.mean());
+
+// Combine the three datasets into one image with three bands
+var combinedImage = ee.Image.cat([monthlyAveragePrecip, monthlyAverageTemp, monthlyAverageLST]);
+
+// Calculate the correlation matrix for the three bands (rainfall, temperature, LST)
+var correlationMatrix = combinedImage.reduceRegion({
+  reducer: ee.Reducer.pearsonsCorrelation(),
+  geometry: studyArea,
+  scale: 1000, // Adjust the scale according to the resolution of the datasets
+  maxPixels: 1e9
+});
+
+// Get the correlation coefficients
+var correlationCoefficients = correlationMatrix.toArray().get([0, 1, 2, 3, 4]);
+
+// Create a list of variable names for the chart
+var variables = ee.List(['precipitation', 'temperature', 'LST']);
+
+// Create a feature collection for the chart
+var chartData = ee.FeatureCollection(variables.map(function(variable, index){
+  var feature = ee.Feature(null, {
+    'variable': variable,
+    'correlation': correlationCoefficients.get(index)
+  });
+  return feature;
+}));
+
+// Display the chart
+print(ui.Chart.feature.byFeature(chartData, 'variable', ['correlation'])
+      .setChartType('BarChart')
+      .setOptions({
+        title: 'Correlation Coefficients',
+        hAxis: {title: 'Climate Element'},
+        vAxis: {title: 'Correlation Coefficient'}
+      }));
