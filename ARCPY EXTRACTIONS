@@ -1,0 +1,24 @@
+import arcpy
+
+# Set the workspace environment
+arcpy.env.workspace = r'path_to_workspace'
+arcpy.env.overwriteOutput = True
+
+# Define input wetland extent shapefile and raster dataset representing the study area (e.g., a satellite image)
+wetland_extent_shapefile = r'path_to_wetland_extent_shapefile'
+raster_dataset = r'path_to_raster_dataset'
+
+# Define the output raster path to store the wetland inundation result
+output_raster = r'path_to_output_raster'
+
+try:
+    # Perform wetland inundation estimation using ExtractByMask
+    arcpy.CheckOutExtension("Spatial")
+    arcpy.gp.ExtractByMask_sa(raster_dataset, wetland_extent_shapefile, output_raster)
+    arcpy.CheckInExtension("Spatial")
+    
+    print("Wetland inundation estimation completed successfully.")
+except arcpy.ExecuteError:
+    print(arcpy.GetMessages(2))
+except Exception as e:
+    print(str(e))
