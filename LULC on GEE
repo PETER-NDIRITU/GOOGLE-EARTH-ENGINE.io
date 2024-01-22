@@ -1,0 +1,198 @@
+Map.centerObject(roi,15)
+var roi_1997 = ee.ImageCollection('LANDSAT/LT05/C02/T1_L2')
+    .filterDate('1995-01-01' , '2002-12-31')
+    .filterBounds(roi)
+    .median()
+    .clip(roi)
+    
+var bands = ['SR_B3', 'SR_B2', 'SR_B1']
+var image = roi_1997.select(bands);
+Map.addLayer(image, imageVisParam, '1997-2002 ROI')
+
+//Lets now define the number of the clasees we want for our classification;
+var classes =  water.merge(bareland).merge(builtup).merge(vegetation);
+
+
+//Assemble samples for the model
+
+var samples = image.sampleRegions({
+  collection: classes,
+  properties: ['landcover'], 
+  scale: 30 
+  }).randomColumn('random');
+  
+  
+// Roughly 75% for training, 25% for testing.
+
+var split = 0.75;
+var training = samples.filter(ee.Filter.lt('random', split)); 
+var testing = samples.filter(ee.Filter.gte('random', split));
+
+// Use Random Forest 
+
+var classifier = ee.Classifier.smileRandomForest(5).train({ 
+  features: training.select(['SR_B3', 'SR_B2', 'SR_B1','landcover']),
+  classProperty: 'landcover',
+  inputProperties: bands
+  });
+
+  
+print(classifier.explain());
+var validation = testing.classify(classifier);
+var testAccuracy = validation.errorMatrix('landcover', 'classification');
+print('Validation error matrix RF: ', testAccuracy);
+print('Validation overall accuracy RF: ', testAccuracy.accuracy());
+
+
+
+var classified = image.select(bands) // select the predictors
+                    .classify(classifier)
+                    .clip(roi);
+                    
+var palette =  ['#0064c8','#b4b4b4','#fa0000','#006400']
+
+Map.addLayer (classified, {min: 0, max: 3,
+      palette: palette}, 'classified')
+
+
+// calculating the Areas
+
+var areaImage = ee.Image.pixelArea().addBands(
+      classified)
+ 
+var areas = areaImage.reduceRegion({
+      reducer: ee.Reducer.sum().group({
+      groupField: 1,
+      groupName: 'class',
+    }),
+    geometry: roi,
+    scale:10,
+    maxPixels: 1e10
+    }); 
+
+print(areas)
+
+// Extract the results from the areas object
+var areasInfo = areas.getInfo().groups;
+
+var classNames = ee.List(['Water','Bareland','Builtup','Vegetation']);
+
+
+var featureCollection = ee.FeatureCollection(
+  areasInfo.map(function(group) {
+    var classValue = ee.Number(group['class']); 
+    var areaValue = group['sum'] / 1000000;
+    return ee.Feature(null, {
+      'class': classNames.get(classValue),
+      'area_sqkm': areaValue
+    });
+  })
+);
+
+
+//MAP ELEMENTS
+
+var mapTitle = ui.Panel({
+  style: {
+    position: 'top-center',
+    padding: '8px 15px'
+  }
+});
+var mapTitle2 = ui.Label({
+  value: 'Nairobi River Riparian LULC',
+  style: {
+    fontWeight: 'bold',
+    fontSize: '20px',
+    margin: '0 0 3px 0',
+    padding: '0'
+    }
+});
+mapTitle.add(mapTitle2);
+Map.add(mapTitle);
+
+// Add map legend
+var legend = ui.Panel({
+  style: {
+    position: 'bottom-left',
+    padding: '8px 15px'
+  }
+});
+var legend2 = ui.Label({
+  value: 'Legend (LULC)',
+  style: {
+    fontWeight: 'bold',
+    fontSize: '18px',
+    margin: '0 0 4px 0',
+    padding: '0'
+    }
+});
+
+
+legend.add(legend2);
+// Creates the content of the legend
+var content = function(color, label) {
+      // Create the color boxes
+      var box = ui.Label({
+        style: {
+          backgroundColor: color,
+          // Set box height and width
+          padding: '10px',
+          margin: '0 0 5px 0'
+        }
+      });
+      // Create the labels
+      var labels = ui.Label({
+        value: label,
+        style: {margin: '0 0 4px 6px'}
+      });
+      return ui.Panel({
+        widgets: [box, labels],
+        layout: ui.Panel.Layout.Flow('horizontal')
+      });
+};
+var names = ['Water', 'Bareland','Builtup','Vegetation']
+// Combine legend colour and labels
+
+for (var i = 0; i < 4; i++) {
+  legend.add(content(palette[i], names[i]));
+  }  
+// Add legend
+Map.add(legend);
+
+
+// Export the feature collection to a CSV file
+Export.table.toDrive({
+  collection: featureCollection,
+  description: 'Areas_1997 - 2002',
+  folder: 'NAIROBI RIVER',
+  fileFormat: 'CSV'
+});
+
+
+// Export the feature collection to a tif file
+Export.image.toDrive({
+  image:classified.clip(roi)
+                  .visualize({
+                    min: 0,
+                    max: 3,
+                    palette: ['#0064c8','#b4b4b4','#fa0000','#006400']}),
+  region:roi,
+  folder:"NAIROBI RIVER",
+  crs : 'EPSG:4326',
+  scale:10,
+  description:"NR_1997-2002",
+  maxPixels: 1E10
+
+});
+
+
+Export.image.toDrive({
+  image:image.clip(roi).select(bands),
+  region:roi,
+  folder:"NAIROBI RIVER",
+  crs : 'EPSG:4326',
+  scale:10,
+  description:"Img_NR_1997-2002",
+  maxPixels: 1E10
+
+});
